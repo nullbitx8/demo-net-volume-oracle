@@ -8,24 +8,33 @@ import {
     usePublicClient,
     useWalletClient
 } from 'wagmi'
-import { parseUnits, formatUnits } from "viem"
-import { DateTimePicker } from '@mui/x-date-pickers';
+import { parseUnits, formatUnits, toHex } from "viem"
+import dayjs from 'dayjs';
+import { MobileDateTimePicker } from '@mui/x-date-pickers';
 import hookAbi from '../abis/NetVolumeOracle.json'
 import tokenAbi from '../abis/MockERC20.json'
+import poolSwapAbi from '../abis/PoolSwapTest.json'
 
 
-const hookContractAddress = '0x5675fbC66019148AAb306C1aDf490fa12eD1D040';
-const token1 = {
-  address: "0x8464135c8f25da09e49bc8782676a84730c318bc",
-  name: "Token1",
-  symbol: "TK1",
+const hookContractAddress = '0xC289326a18EDa1a5cbFa400D6933a765254Ad040';
+const token0 = {
+  address: "0x04409fe920940E6958738191f5974F79Ad5b51Dc",
+  name: "Blue Chip Token",
+  symbol: "BLU3CH1P",
   decimals: 18,
 };
-const token2 = {
-  address: "0x71c95911e9a5d330f4d621842ec243ee1343292e",
-  name: "Token2",
-  symbol: "TK2",
+const token1 = {
+  address: "0x554bb39508D3D62DB71c95F2fce5e097f5967aC1",
+  name: "Meme Token",
+  symbol: "M3M3",
   decimals: 18,
+};
+const poolKey = {
+  currency0: token0.address,
+  currency1: token1.address,
+  fee: 3000,
+  tickSpacing: 120,
+  hooks: hookContractAddress,
 };
 
 
@@ -36,10 +45,13 @@ function App() {
   const publicClient = usePublicClient(); // For reading data
   const walletClient = useWalletClient(); // For writing (transactions)
 
-  const [token1Balance, setToken1Balance] = useState("0");
-  const [token2Balance, setToken2Balance] = useState("0");
-  const [mintAmount1, setMintAmount1] = useState("0");
-  const [mintAmount2, setMintAmount2] = useState("0");
+  const [token0Balance, settoken0Balance] = useState("0");
+  const [token1Balance, settoken1Balance] = useState("0");
+  const [mintAmount0, setmintAmount0] = useState("0");
+  const [mintAmount1, setmintAmount1] = useState("0");
+  const [swapAmountToken0, setswapAmountToken0] = useState("0");
+  const [swapAmountToken1, setswapAmountToken1] = useState("0");
+  const [currentDateTime, setCurrentDateTime] = useState(dayjs().format('YYYY-MM-DD HH:mm:ss'));
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [twanvResult, setTwanvResult] = useState(null);
@@ -52,21 +64,21 @@ function App() {
       // Call `balanceOf` on both token contracts
       const [balance1, balance2] = await Promise.all([
         publicClient.readContract({
-          address: token1.address,
+          address: token0.address,
           abi: tokenAbi,
           functionName: "balanceOf",
           args: [account.address],
         }),
         publicClient.readContract({
-          address: token2.address,
+          address: token1.address,
           abi: tokenAbi,
           functionName: "balanceOf",
           args: [account.address],
         }),
       ]);
 
-      setToken1Balance(formatUnits(balance1, token1.decimals));
-      setToken2Balance(formatUnits(balance2, token2.decimals));
+      settoken0Balance(formatUnits(balance1, token0.decimals));
+      settoken1Balance(formatUnits(balance2, token1.decimals));
     } catch (error) {
       console.error("Failed to fetch balances:", error);
     }
@@ -101,9 +113,8 @@ function App() {
       if (!startDate || (!endDate && hookAbi.some((f) => f.name === "getNetVolume" && f.inputs.length === 2))) return;
 
       try {
-        const startTime = Math.floor(startDate.getTime() / 1000); // Convert to UNIX timestamp
-        const endTime = endDate ? Math.floor(endDate.getTime() / 1000) : undefined;
-
+        const startTime = startDate.unix();
+        const endTime = endDate ? endDate.unix() : undefined;
         const args = endTime ? [poolKey, startTime, endTime] : [poolKey, startTime];
 
         // Call the contract function using Viem
@@ -114,15 +125,51 @@ function App() {
           args,
         });
 
+        console.log("result: ", result);
         setTwanvResult({
-          token0NetVolume: result.token0NetVolume.toString(),
-          token1NetVolume: result.token1NetVolume.toString(),
+          token0NetVolume: result[0].toString(),
+          token1NetVolume: result[1].toString(),
         });
       } catch (error) {
         console.error("Query failed:", error);
         alert("Failed to query TWANV. Check the console for details.");
       }
     };
+
+  const swapTokens = async (amountIn, tokenIn) => {
+    if (!account.isConnected || !account.address || !walletClient.data) return;
+
+    try {
+      const amountInWei = parseUnits(amountIn, tokenIn.decimals);
+
+      const testSettings = { takeClaims: false, settleUsingBurn: false};
+      const swapParams = {
+            zeroForOne: tokenIn.address === token0.address ? true : false,
+            amountSpecified: -(amountIn),
+            sqrtPriceLimitX96: tokenIn.address === token0.address ? 4295128740 : "1461446703485210103287273052203988822378723970341",
+      };
+      const hookData = toHex("");
+
+      const args = [poolKey, swapParams, testSettings, hookData];
+        
+      // Execute the `swap` function
+      const tx = await walletClient.data.writeContract({
+        address: "0x96E3495b712c6589f1D2c50635FDE68CF17AC83c",
+        abi: poolSwapAbi,
+        functionName: "swap",
+        args: args
+      });
+
+      console.log(`Swap Transaction`, tx);
+      
+      // refresh balance after waiting for tx receipt
+      await publicClient.waitForTransactionReceipt({ hash: tx })
+      fetchBalances(); // Refresh balances after swapping
+    } catch (error) {
+      console.error(`Failed to swap tokens:`, error);
+    }
+  }
+
 
   useEffect(() => {
     if (account.isConnected) fetchBalances();
@@ -171,37 +218,58 @@ function App() {
     {/* Mint Tokens */}
     <div>
       <h2>Tokens</h2>
-      <h4>Token1: {token1.symbol}</h4>
+      <h4>{token0.name}: {token0.symbol}</h4>
+      <p>Balance: {token0Balance}</p>
+      <input
+        type="number"
+        value={mintAmount0}
+        onChange={(e) => setmintAmount0(e.target.value)}
+      />
+      <button onClick={() => handleMint(token0, mintAmount0)}>Mint {token0.symbol}</button>
+      <h4>{token1.name}: {token1.symbol}</h4>
       <p>Balance: {token1Balance}</p>
       <input
         type="number"
-        placeholder="Amount of Token1 to mint"
         value={mintAmount1}
-        onChange={(e) => setMintAmount1(e.target.value)}
+        onChange={(e) => setmintAmount1(e.target.value)}
       />
-      <button onClick={() => handleMint(token1, mintAmount1)}>Mint Token1</button>
-      <h4>Token2: {token2.symbol}</h4>
-      <p>Balance: {token2Balance}</p>
-      <input
-        type="number"
-        placeholder="Amount of Token2 to mint"
-        value={mintAmount2}
-        onChange={(e) => setMintAmount2(e.target.value)}
-      />
-      <button onClick={() => handleMint(token2, mintAmount2)}>Mint Token2</button>
+      <button onClick={() => handleMint(token1, mintAmount1)}>Mint {token1.symbol}</button>
+    </div>
+
+    {/* Swap Tokens */}
+    <div>
+        <h2>Swap Tokens</h2>
+        <p>Enter the amount of {token0.name} to swap for {token1.name}.</p>
+        <input
+            type="number"
+            value={swapAmountToken0}
+            onChange={(e) => setswapAmountToken0(e.target.value)}
+        />
+        <button onClick={() => swapTokens(swapAmountToken0, token0)}>Swap {token0.symbol} for {token1.symbol}</button>
+
+        <p>Enter the amount of {token1.name} to swap for {token0.name}.</p>
+        <input
+            type="number"
+            value={swapAmountToken1}
+            onChange={(e) => setswapAmountToken1(e.target.value)}
+        />
+        <button onClick={() => swapTokens(swapAmountToken1, token1)}>Swap {token1.symbol} for {token0.symbol}</button>
     </div>
 
     {/* Query TWANV */}
     <div>
       <h2>Query TWANV</h2>
       <p>Select a start and end date to query the Time-Weighted Average Net Volume.</p>
-      <DateTimePicker
+      <p>Current date time: {currentDateTime}</p>
+      <MobileDateTimePicker
         value={startDate}
         onChange={(date) => setStartDate(date)}
+        views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
       />
-      <DateTimePicker
+      <MobileDateTimePicker
         value={endDate}
         onChange={(date) => setEndDate(date)}
+        views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
       />
       <button onClick={queryTWANV}>Query</button>
 
