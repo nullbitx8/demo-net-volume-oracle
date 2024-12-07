@@ -8,7 +8,7 @@ import {
     usePublicClient,
     useWalletClient
 } from 'wagmi'
-import { parseUnits, formatUnits, toHex } from "viem"
+import { parseUnits, formatUnits, toHex, Address } from "viem"
 import dayjs from 'dayjs';
 import { MobileDateTimePicker } from '@mui/x-date-pickers';
 import hookAbi from '../abis/NetVolumeOracle.json'
@@ -16,16 +16,16 @@ import tokenAbi from '../abis/MockERC20.json'
 import poolSwapAbi from '../abis/PoolSwapTest.json'
 
 
-const hookContractAddress = process.env.NEXT_PUBLIC_HOOK_CONTRACT_ADDRESS;
-const poolSwapTestAddress = process.env.NEXT_PUBLIC_POOL_SWAP_TEST_ADDRESS;
+const hookContractAddress = process.env.NEXT_PUBLIC_HOOK_CONTRACT_ADDRESS || "";
+const poolSwapTestAddress = process.env.NEXT_PUBLIC_POOL_SWAP_TEST_ADDRESS || "";
 const token0 = {
-  address: process.env.NEXT_PUBLIC_TOKEN0_ADDRESS,
+  address: process.env.NEXT_PUBLIC_TOKEN0_ADDRESS as Address,
   name: "Blue Chip Token",
   symbol: "BLU3CH1P",
   decimals: 18,
 };
 const token1 = {
-  address: process.env.NEXT_PUBLIC_TOKEN1_ADDRESS,
+  address: process.env.NEXT_PUBLIC_TOKEN1_ADDRESS as Address,
   name: "Meme Token",
   symbol: "M3M3",
   decimals: 18,
