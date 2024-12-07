@@ -208,6 +208,25 @@ function App() {
         )}
       </div>
 
+      <div>
+        {account.isConnected ? (<></>) : (
+          <div>
+            <h2>Connect</h2>
+            {connectors.map((connector) => (
+              <button
+                key={connector.uid}
+                onClick={() => connect({ connector })}
+                type="button"
+              >
+                Connect Wallet
+              </button>
+            ))}
+            <div>{status}</div>
+            <div>{error?.message}</div>
+          </div>
+          )}
+      </div>
+
         {/* Query TWANV */}
         <div>
           <h1>Query TWANV</h1>
@@ -239,25 +258,6 @@ function App() {
             </div>
           )}
         </div>
-
-      <div>
-        {account.isConnected ? (<></>) : (
-          <div>
-            <h2>Connect</h2>
-            {connectors.map((connector) => (
-              <button
-                key={connector.uid}
-                onClick={() => connect({ connector })}
-                type="button"
-              >
-                Connect Wallet
-              </button>
-            ))}
-            <div>{status}</div>
-            <div>{error?.message}</div>
-          </div>
-          )}
-      </div>
 
     {/* Mint Tokens */}
     <div>
