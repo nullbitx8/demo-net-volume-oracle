@@ -16,15 +16,16 @@ import tokenAbi from '../abis/MockERC20.json'
 import poolSwapAbi from '../abis/PoolSwapTest.json'
 
 
-const hookContractAddress = '0xC289326a18EDa1a5cbFa400D6933a765254Ad040';
+const hookContractAddress = process.env.NEXT_PUBLIC_HOOK_CONTRACT_ADDRESS;
+const poolSwapTestAddress = process.env.NEXT_PUBLIC_POOL_SWAP_TEST_ADDRESS;
 const token0 = {
-  address: "0x04409fe920940E6958738191f5974F79Ad5b51Dc",
+  address: process.env.NEXT_PUBLIC_TOKEN0_ADDRESS,
   name: "Blue Chip Token",
   symbol: "BLU3CH1P",
   decimals: 18,
 };
 const token1 = {
-  address: "0x554bb39508D3D62DB71c95F2fce5e097f5967aC1",
+  address: process.env.NEXT_PUBLIC_TOKEN1_ADDRESS,
   name: "Meme Token",
   symbol: "M3M3",
   decimals: 18,
@@ -32,7 +33,7 @@ const token1 = {
 const poolKey = {
   currency0: token0.address,
   currency1: token1.address,
-  fee: 3000,
+  fee: 1000,
   tickSpacing: 120,
   hooks: hookContractAddress,
 };
@@ -77,8 +78,8 @@ function App() {
         }),
       ]);
 
-      settoken0Balance(formatUnits(balance1, token0.decimals));
-      settoken1Balance(formatUnits(balance2, token1.decimals));
+      settoken0Balance(balance1.toString());
+      settoken1Balance(balance2.toString());
     } catch (error) {
       console.error("Failed to fetch balances:", error);
     }
@@ -87,9 +88,9 @@ function App() {
   const handleMint = async (token, amount) => {
     if (!account.isConnected || !account.address || !walletClient.data) return;
 
-    try {
-      const amountInWei = parseUnits(amount, token.decimals);
+    const amountInWei = parseUnits(amount.toString(), token.decimals);
 
+    try {
       // Execute the `mint` function
       const tx = await walletClient.data.writeContract({
         address: token.address,
@@ -110,7 +111,10 @@ function App() {
   };
 
     const queryTWANV = async () => {
-      if (!startDate || (!endDate && hookAbi.some((f) => f.name === "getNetVolume" && f.inputs.length === 2))) return;
+      if (!startDate) {
+        alert("Must set start time.");
+        return;
+      }
 
       try {
         const startTime = startDate.unix();
@@ -138,14 +142,13 @@ function App() {
 
   const swapTokens = async (amountIn, tokenIn) => {
     if (!account.isConnected || !account.address || !walletClient.data) return;
+    const amountInWei = parseUnits(amountIn.toString(), tokenIn.decimals);
 
     try {
-      const amountInWei = parseUnits(amountIn, tokenIn.decimals);
-
       const testSettings = { takeClaims: false, settleUsingBurn: false};
       const swapParams = {
             zeroForOne: tokenIn.address === token0.address ? true : false,
-            amountSpecified: -(amountIn),
+            amountSpecified: -(amountInWei),
             sqrtPriceLimitX96: tokenIn.address === token0.address ? 4295128740 : "1461446703485210103287273052203988822378723970341",
       };
       const hookData = toHex("");
@@ -154,7 +157,7 @@ function App() {
         
       // Execute the `swap` function
       const tx = await walletClient.data.writeContract({
-        address: "0x96E3495b712c6589f1D2c50635FDE68CF17AC83c",
+        address: poolSwapTestAddress,
         abi: poolSwapAbi,
         functionName: "swap",
         args: args
@@ -170,10 +173,19 @@ function App() {
     }
   }
 
-
   useEffect(() => {
     if (account.isConnected) fetchBalances();
   }, [account.isConnected]);
+
+  useEffect(() => {
+
+    // update current date time every 5 seconds
+    const intervalId = setInterval(() => {
+        setCurrentDateTime(dayjs().format('YYYY-MM-DD HH:mm:ss'));
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
 
   return (
@@ -195,6 +207,38 @@ function App() {
           </button>
         )}
       </div>
+
+        {/* Query TWANV */}
+        <div>
+          <h1>Query TWANV</h1>
+          <p>Select a start and end date to query the Time-Weighted Average Net Volume.</p>
+          <p>Current date time: {currentDateTime}</p>
+          <MobileDateTimePicker
+            label="Start Time"
+            value={startDate}
+            onChange={(date) => setStartDate(date)}
+            views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
+          />
+          <MobileDateTimePicker
+            label="End Time (optional)"
+            value={endDate}
+            onChange={(date) => setEndDate(date)}
+            views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
+          />
+          <button
+            style={{ height: "50px", width: "100px"}}
+            onClick={queryTWANV}>
+                Query
+            </button>
+
+          {twanvResult && (
+            <div>
+              <h2>Time Weighted Average Net Volume (TWANV)</h2>
+              <p>{token0.symbol}: {formatUnits(twanvResult.token0NetVolume, token0.decimals)}</p>
+              <p>{token1.symbol}: {formatUnits(twanvResult.token1NetVolume, token1.decimals)}</p>
+            </div>
+          )}
+        </div>
 
       <div>
         {account.isConnected ? (<></>) : (
@@ -219,7 +263,7 @@ function App() {
     <div>
       <h2>Tokens</h2>
       <h4>{token0.name}: {token0.symbol}</h4>
-      <p>Balance: {token0Balance}</p>
+      <p>Balance: {formatUnits(token0Balance, token0.decimals)}</p>
       <input
         type="number"
         value={mintAmount0}
@@ -227,7 +271,7 @@ function App() {
       />
       <button onClick={() => handleMint(token0, mintAmount0)}>Mint {token0.symbol}</button>
       <h4>{token1.name}: {token1.symbol}</h4>
-      <p>Balance: {token1Balance}</p>
+      <p>Balance: {formatUnits(token1Balance, token1.decimals)}</p>
       <input
         type="number"
         value={mintAmount1}
@@ -255,33 +299,6 @@ function App() {
         />
         <button onClick={() => swapTokens(swapAmountToken1, token1)}>Swap {token1.symbol} for {token0.symbol}</button>
     </div>
-
-    {/* Query TWANV */}
-    <div>
-      <h2>Query TWANV</h2>
-      <p>Select a start and end date to query the Time-Weighted Average Net Volume.</p>
-      <p>Current date time: {currentDateTime}</p>
-      <MobileDateTimePicker
-        value={startDate}
-        onChange={(date) => setStartDate(date)}
-        views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
-      />
-      <MobileDateTimePicker
-        value={endDate}
-        onChange={(date) => setEndDate(date)}
-        views={['year', 'month', 'day', 'hours', 'minutes', 'seconds']}
-      />
-      <button onClick={queryTWANV}>Query</button>
-
-      {twanvResult && (
-        <div>
-          <h3>TWANV Results:</h3>
-          <p>Token0 Net Volume: {twanvResult.token0NetVolume}</p>
-          <p>Token1 Net Volume: {twanvResult.token1NetVolume}</p>
-        </div>
-      )}
-    </div>
-
     </>
   )
 }
